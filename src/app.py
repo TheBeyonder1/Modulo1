@@ -85,7 +85,7 @@ graph_builder.add_edge(START, "retrieve")
 graph = graph_builder.compile()
 
 # --- UI en Streamlit ---
-st.title("Chatbot RAG con LangGraph y PDF")
+st.title("Chatbot Modulo1")
 
 uploaded_file = st.file_uploader("Sube tu PDF", type="pdf")
 
