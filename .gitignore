@@ -7,7 +7,7 @@ __pycache__/
 .env.*
 *.sqlite
 *.db
-
+*chroma_db
 # Chroma
 chroma_db/
 
@@ -19,3 +19,7 @@ ollama_models/
 
 # Logs
 *.log
+/chroma_db
+/data
+/chroma_langchain_db
+/chroma_db
