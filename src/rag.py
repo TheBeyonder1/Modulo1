@@ -7,14 +7,16 @@ import os
 CHROMA_PATH = "chroma_db"
 
 def process_pdf(file_path: str):
+    print(" Cargando documento...")
     # 1. Cargar el PDF
     loader = PyPDFLoader(file_path)
     documents = loader.load()
+    
 
     # 2. Dividir el texto en fragmentos
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
     docs = splitter.split_documents(documents)
-
+    print(f" Se cargaron {len(docs)} páginas. Procesando embeddings...")
     # 3. Generar embeddings con Ollama
     embeddings = OllamaEmbeddings(model="nomic-embed-text")
 
