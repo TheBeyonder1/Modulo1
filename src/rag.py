@@ -51,9 +51,25 @@ def load_qa_chain():
 
     return qa_chain
 
-def answer_question(query: str) -> str:
-    qa_chain = load_qa_chain()
-    result = qa_chain(query)
+def answer_question(query: str, model_name="mistral:latest", temperature=0.7, top_p=0.9, top_k=40) -> str:
+    embeddings = OllamaEmbeddings(model="nomic-embed-text")
+    vectordb = Chroma(persist_directory=CHROMA_PATH, embedding_function=embeddings)
+    retriever = vectordb.as_retriever(search_kwargs={"k": 5})
+
+    llm = Ollama(
+        model=model_name,
+        temperature=temperature,
+        top_p=top_p,
+        top_k=top_k
+    )
+
+    qa_chain = RetrievalQA.from_chain_type(
+        llm=llm,
+        retriever=retriever,
+        return_source_documents=True
+    )
+
+    result = qa_chain({"query": query})
 
     print("Documentos fuente utilizados:")
     for doc in result["source_documents"]:
@@ -61,4 +77,3 @@ def answer_question(query: str) -> str:
         print(doc.page_content)
 
     return result["result"]
-
