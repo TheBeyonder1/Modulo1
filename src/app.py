@@ -1,22 +1,112 @@
 import streamlit as st
 import os
+from dotenv import load_dotenv
+import bs4
+from langchain_chroma import Chroma
+from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_community.document_loaders import WebBaseLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_core.documents import Document
+from langgraph.graph import START, StateGraph
+from typing_extensions import TypedDict, List
+from langchain import hub
+import subprocess
 from rag import process_pdf, answer_question
 
-st.set_page_config(page_title="Chatbot RAG PDF", layout="wide")
+load_dotenv()
 
-st.title("🤖 Chatbot RAG con PDF y Ollama")
+# --- Función para listar modelos Ollama disponibles ---
+def listar_modelos_ollama():
+    try:
+        result = subprocess.run(["ollama", "list"], capture_output=True, text=True)
+        if result.returncode == 0:
+            lineas = result.stdout.strip().split('\n')
+            # Ignorar la primera línea (header) y extraer solo el nombre (primera palabra)
+            modelos = [line.split()[0] for line in lineas[1:] if line.strip()]
+            return modelos
+        else:
+            return []
+    except FileNotFoundError:
+        return []
 
-# --- Sidebar para configuración del modelo ---
-st.sidebar.header("Configuración del Modelo")
-model_name = st.sidebar.selectbox(
-    "Selecciona modelo",
-    ["mistral:latest", "gemma:latest", "nomic-embed-text"]  # o la lista que quieras
+
+# --- Obtener modelos disponibles ---
+modelos_ollama = listar_modelos_ollama()
+
+# --- Parámetros UI para escoger modelo, temperatura, top_k ---
+modelo_seleccionado = st.sidebar.selectbox(
+    "Selecciona el modelo Ollama",
+    modelos_ollama if modelos_ollama else ["mistral"]
 )
+model_name = modelo_seleccionado
+
+
 temperature = st.sidebar.slider("Temperatura", 0.0, 1.5, 0.7, 0.1)
 top_p = st.sidebar.slider("Top-p", 0.0, 1.0, 0.9, 0.05)
 top_k = st.sidebar.slider("Top-k", 1, 100, 40, 1)
 
+# --- Inicializar LLM Ollama con parámetros seleccionados ---
+llm = ChatOllama(
+    model=modelo_seleccionado,
+    temperature=temperature,
+    num_predict=top_k,
+    top_p=top_p,
+)
+
+# --- Inicializar embeddings Ollama ---
+embeddings = OllamaEmbeddings(model="nomic-embed-text")
+
+# --- Vector Store ---
+vector_store = Chroma(
+    collection_name="mi_coleccion_pdf",
+    embedding_function=embeddings,
+    persist_directory="./chroma_langchain_db",
+)
+
+# --- Función para cargar y procesar un PDF ---
+def process_pdf_with_langsmith(file_path):
+    from langchain.document_loaders import PyPDFLoader
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+    loader = PyPDFLoader(file_path)
+    docs = loader.load()
+    
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+    splits = text_splitter.split_documents(docs)
+    
+    vector_store.add_documents(splits)
+    vector_store.persist()
+
+# --- Prompt predefinido de LangSmith ---
+prompt = hub.pull("rlm/rag-prompt")
+
+# --- Define el estado ---
+class State(TypedDict):
+    question: str
+    context: List[Document]
+    answer: str
+
+# --- Define pasos del pipeline ---
+def retrieve(state: State):
+    retrieved_docs = vector_store.similarity_search(state["question"], k=5)
+    return {"context": retrieved_docs}
+
+def generate(state: State):
+    docs_content = "\n\n".join(doc.page_content for doc in state["context"])
+    messages = prompt.invoke({"question": state["question"], "context": docs_content})
+    response = llm.invoke(messages)
+    return {"answer": response.content}
+
+# --- Crear grafo ---
+graph_builder = StateGraph(State).add_sequence([retrieve, generate])
+graph_builder.add_edge(START, "retrieve")
+graph = graph_builder.compile()
+
+# --- Streamlit app ---
+st.title("Chatbot RAG con LangSmith y PDF")
+
 uploaded_file = st.file_uploader("Sube tu PDF", type="pdf")
+
 if uploaded_file:
     save_path = f"./data/{uploaded_file.name}"
     with open(save_path, "wb") as f:
@@ -24,9 +114,8 @@ if uploaded_file:
     st.success("PDF cargado correctamente")
 
     if st.button("Procesar PDF"):
-        process_pdf(save_path)
-        st.success("PDF procesado y vectorizado")
-        st.session_state["pdf_procesado"] = True
+        process_pdf_with_langsmith(save_path)
+        st.success("PDF procesado y indexado")
 
 if "pdf_procesado" not in st.session_state:
     st.session_state["pdf_procesado"] = False
@@ -34,10 +123,12 @@ if "pdf_procesado" not in st.session_state:
 if "messages" not in st.session_state:
     st.session_state["messages"] = []
 
+if st.button("Iniciar chat"):
+    st.session_state["pdf_procesado"] = True
+
 if st.session_state["pdf_procesado"]:
     user_question = st.text_input("Haz una pregunta sobre el PDF")
-    if user_question:
-        # Guardar la pregunta en el historial
+    if user_question: # Guardar la pregunta en el historial
         st.session_state.messages.append(("user", user_question))
 
         # Obtener respuesta con los parámetros de configuración
@@ -57,3 +148,6 @@ if st.session_state["pdf_procesado"]:
             st.markdown(f"🧑‍💻 **Tú:** {msg}")
         else:
             st.markdown(f"🤖 **Bot:** {msg}")
+        response = graph.invoke({"question": user_question})
+        st.markdown("**Respuesta:**")
+        st.write(response["answer"])
