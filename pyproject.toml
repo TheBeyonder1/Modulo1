@@ -1,0 +1,18 @@
+[project]
+name = "chatbot-rag"
+version = "0.1.0"
+description = "Chatbot RAG con Langchain y Streamlit"
+authors = [{ name = "Tu Nombre" }]
+dependencies = [
+    "streamlit",
+    "langchain",
+    "langchain-community",
+    "chromadb",
+    "pypdf",
+    "ollama"
+]
+requires-python = ">=3.10"
+
+[build-system]
+requires = ["uv"]
+build-backend = "uv"
