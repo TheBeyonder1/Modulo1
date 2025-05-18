@@ -29,8 +29,8 @@ uv streamlit run src/app.py
 
 
 Aqui hay algunas imagenes del proceso y de la interfaz
-![alt text](/images/image2.png)
+![Interfaz](images/image2.png)
 
 Evidencia de Langsmith
-![alt text](/images/image.png)
+![Langsmith](images/image.png)
 
