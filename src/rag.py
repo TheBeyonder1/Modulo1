@@ -40,7 +40,7 @@ def load_qa_chain():
     vectordb = Chroma(persist_directory=CHROMA_PATH, embedding_function=embeddings)
 
     # Cargar LLM de Ollama
-    llm = Ollama(model="llama3.2:3b")  # o mistral, gemma, etc.
+    llm = Ollama(model="mistral:latest")  # o mistral, gemma, etc.
 
     # Crear chain de QA con retrieval
     qa_chain = RetrievalQA.from_chain_type(
