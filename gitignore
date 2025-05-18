@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.venv/
+.env.*
+*.sqlite
+*.db
+
+# Chroma
+chroma_db/
+
+# Ollama models
+ollama_models/
+
+# Streamlit cache
+.streamlit/
+
+# Logs
+*.log
