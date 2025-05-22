@@ -45,7 +45,8 @@ top_k = st.sidebar.slider("Top-k", 1, 100, 40, 1)
 llm = ChatOllama(
     model=modelo_seleccionado,
     temperature=temperature,
-    num_predict=top_k,
+    num_predict=1024,  
+    top_k=top_k,
     top_p=top_p,
 )
 embeddings = OllamaEmbeddings(model="nomic-embed-text")
