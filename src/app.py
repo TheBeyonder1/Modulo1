@@ -3,13 +3,17 @@ import os
 from dotenv import load_dotenv
 import subprocess
 from langchain_ollama import ChatOllama, OllamaEmbeddings
-from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain import hub
 from langgraph.graph import START, StateGraph
 from typing_extensions import TypedDict, List
+from langchain.vectorstores import FAISS
+from pathlib import Path
+import faiss
+from langchain.docstore import InMemoryDocstore
+
 
 load_dotenv()
 
@@ -46,20 +50,33 @@ llm = ChatOllama(
 )
 embeddings = OllamaEmbeddings(model="nomic-embed-text")
 
-# --- Vector Store ---
-vector_store = Chroma(
-    collection_name="mi_coleccion_pdf",
-    embedding_function=embeddings,
-    persist_directory="./chroma_langchain_db",
-)
+if Path("faiss_index").exists():
+    st.session_state.vector_store = FAISS.load_local("faiss_index", embeddings, allow_dangerous_deserialization=True)
+else:
+    sample_embedding = embeddings.embed_query("test")
+    dim = len(sample_embedding)
 
-# --- Procesar PDF ---
+    index = faiss.IndexFlatL2(dim)
+    docstore = InMemoryDocstore({})
+    index_to_docstore_id = {}
+
+    st.session_state.vector_store = FAISS(
+        index=index,
+        embedding_function=embeddings.embed_query,
+        docstore=docstore,
+        index_to_docstore_id=index_to_docstore_id
+    )
+
+    
+
+# --- Procesar PDF y añadir al índice ---
 def process_pdf_with_langsmith(file_path):
     loader = PyPDFLoader(file_path)
     docs = loader.load()
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
     splits = splitter.split_documents(docs)
-    vector_store.add_documents(splits)
+    st.session_state.vector_store.add_documents(splits)
+    st.session_state.vector_store.save_local("faiss_index")  # Guarda cambios
 
 # --- Prompt predefinido ---
 prompt = hub.pull("rlm/rag-prompt")
@@ -71,8 +88,10 @@ class State(TypedDict):
     answer: str
 
 def retrieve(state: State):
-    retrieved_docs = vector_store.similarity_search(state["question"], k=5)
+    retrieved_docs = st.session_state.vector_store.similarity_search(state["question"], k=5)
     return {"context": retrieved_docs}
+
+
 
 def generate(state: State):
     docs_content = "\n\n".join(doc.page_content for doc in state["context"])
@@ -84,8 +103,8 @@ graph_builder = StateGraph(State).add_sequence([retrieve, generate])
 graph_builder.add_edge(START, "retrieve")
 graph = graph_builder.compile()
 
-# --- UI en Streamlit ---
-st.title("Chatbot Modulo1")
+# --- Interfaz Streamlit ---
+st.title("Chatbot Módulo 1")
 
 uploaded_file = st.file_uploader("Sube tu PDF", type="pdf")
 
@@ -112,13 +131,13 @@ if st.session_state["pdf_procesado"]:
     if user_question:
         st.session_state.messages.append(("user", user_question))
 
-        # --- Usar LangGraph para obtener la respuesta ---
+        # --- Ejecutar LangGraph para responder ---
         response = graph.invoke({"question": user_question})
         answer = response["answer"]
 
         st.session_state.messages.append(("bot", answer))
 
-    # Mostrar historial
+    # --- Mostrar historial de mensajes ---
     for role, msg in st.session_state.messages:
         if role == "user":
             st.markdown(f"🧑‍💻 **Tú:** {msg}")

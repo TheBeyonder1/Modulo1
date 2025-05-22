@@ -1,59 +1,41 @@
+import os
 from langchain_community.document_loaders import PyPDFLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.vectorstores import Chroma
+from langchain.vectorstores import FAISS
 from langchain.embeddings import OllamaEmbeddings
 from langchain.chains import RetrievalQA
 from langchain.llms import Ollama
 
+VECTOR_STORE_PATH = "faiss_index"
+EMBEDDING_MODEL = "nomic-embed-text"
+DEFAULT_LLM = "mistral:latest"
 
-import os
-
-CHROMA_PATH = "chroma_db"
-
+# --- Procesar PDF y construir índice FAISS ---
 def process_pdf(file_path: str):
-    print(" Cargando documento...")
-    # 1. Cargar el PDF
+    print("📄 Cargando documento...")
     loader = PyPDFLoader(file_path)
     documents = loader.load()
-    
 
-    # 2. Dividir el texto en fragmentos
     splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)
     docs = splitter.split_documents(documents)
-    print(f" Se cargaron {len(docs)} páginas. Procesando embeddings...")
-    # 3. Generar embeddings con Ollama
-    embeddings = OllamaEmbeddings(model="nomic-embed-text")
+    print(f"🔍 Se cargaron {len(docs)} fragmentos. Generando embeddings...")
 
-    # 4. Guardar embeddings en Chroma
-    vectordb = Chroma.from_documents(docs, embeddings, persist_directory=CHROMA_PATH)
-    vectordb.persist()
+    embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL)
+    vectordb = FAISS.from_documents(docs, embeddings)
 
-    print(f"{len(docs)} fragmentos indexados correctamente.")
+    print("💾 Guardando índice FAISS...")
+    vectordb.save_local(VECTOR_STORE_PATH)
 
+    print(f"✅ {len(docs)} fragmentos indexados en FAISS.")
+
+# --- Cargar índice FAISS desde disco ---
 def get_vectorstore():
-    embeddings = OllamaEmbeddings(model="nomic-embed-text")
-    return Chroma(persist_directory=CHROMA_PATH, embedding_function=embeddings)
+    embeddings = OllamaEmbeddings(model=EMBEDDING_MODEL)
+    return FAISS.load_local(VECTOR_STORE_PATH, embeddings)
 
-def load_qa_chain():
-    # Cargar embeddings y base vectorial
-    embeddings = OllamaEmbeddings(model="nomic-embed-text")
-    vectordb = Chroma(persist_directory=CHROMA_PATH, embedding_function=embeddings)
-
-    # Cargar LLM de Ollama
-    llm = Ollama(model="mistral:latest")  # o mistral, gemma, etc.
-
-    # Crear chain de QA con retrieval
-    qa_chain = RetrievalQA.from_chain_type(
-        llm=llm,
-        retriever=vectordb.as_retriever(),
-        return_source_documents=True
-    )
-
-    return qa_chain
-
-def answer_question(query: str, model_name="mistral:latest", temperature=0.7, top_p=0.9, top_k=40) -> str:
-    embeddings = OllamaEmbeddings(model="nomic-embed-text")
-    vectordb = Chroma(persist_directory=CHROMA_PATH, embedding_function=embeddings)
+# --- Cargar cadena QA ---
+def load_qa_chain(model_name=DEFAULT_LLM, temperature=0.7, top_p=0.9, top_k=40):
+    vectordb = get_vectorstore()
     retriever = vectordb.as_retriever(search_kwargs={"k": 5})
 
     llm = Ollama(
@@ -69,11 +51,16 @@ def answer_question(query: str, model_name="mistral:latest", temperature=0.7, to
         return_source_documents=True
     )
 
+    return qa_chain
+
+# --- Responder pregunta ---
+def answer_question(query: str, model_name=DEFAULT_LLM, temperature=0.7, top_p=0.9, top_k=40) -> str:
+    qa_chain = load_qa_chain(model_name, temperature, top_p, top_k)
     result = qa_chain({"query": query})
 
-    print("Documentos fuente utilizados:")
+    print("📚 Documentos fuente utilizados:")
     for doc in result["source_documents"]:
-        print(f"\n[Fuente] {doc.metadata.get('source', 'Sin metadata')}")
-        print(doc.page_content)
+        print(f"\n📝 [Fuente] {doc.metadata.get('source', 'Sin metadata')}")
+        print(doc.page_content[:500], "...")  # muestra los primeros 500 caracteres
 
     return result["result"]
